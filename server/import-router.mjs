@@ -72,13 +72,23 @@ export function createImportHandler(store) {
 
   async function setupStatus() {
     const hasApiKey = Boolean(setting("OPENAI_API_KEY").trim());
-    const hasModelReference = await store.exists("model-reference.png");
+    let hasBlobStore = true;
+    let hasModelReference = false;
+    try {
+      hasModelReference = await store.exists("model-reference.png");
+    } catch (error) {
+      // Without BLOB_READ_WRITE_TOKEN (no Blob store connected) every store
+      // call throws; report it as a setup step instead of failing the route.
+      hasBlobStore = false;
+    }
     const missing = [];
+    if (!hasBlobStore) missing.push("connect a Blob store to this project (Vercel dashboard → Storage → Create Blob store) and redeploy");
     if (!hasApiKey) missing.push("set OPENAI_API_KEY in your Vercel project's environment variables and redeploy");
-    if (!hasModelReference) missing.push("upload a reference photo of yourself by running: npm run upload-reference -- your-photo.png");
+    if (hasBlobStore && !hasModelReference) missing.push("upload a reference photo of yourself by running: npm run upload-reference -- your-photo.png");
     return {
-      ready: hasApiKey && hasModelReference,
+      ready: hasApiKey && hasBlobStore && hasModelReference,
       hasApiKey,
+      hasBlobStore,
       hasModelReference,
       modelReference: "model-reference.png",
       hint: missing.length ? `To enable importing, ${missing.join(", and ")}.` : null,
@@ -367,7 +377,9 @@ export function createImportHandler(store) {
       return json(res, 404, { error: "Not found" });
     } catch (error) {
       const statusCode = error.status || 500;
-      return json(res, statusCode, { error: statusCode === 500 ? "Internal server error" : error.message });
+      // This is a single-user app; surfacing the message makes self-hosted
+      // debugging possible and leaks nothing another user could exploit.
+      return json(res, statusCode, { error: statusCode === 500 ? "Internal server error" : error.message, ...(statusCode === 500 ? { detail: error.message } : {}) });
     }
   };
 }
