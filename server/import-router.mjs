@@ -249,6 +249,19 @@ export function createImportHandler(store) {
       if (url.pathname === "/api/import/config" && req.method === "GET") {
         return json(res, 200, await setupStatus());
       }
+      // Temporary setup-debugging aid: reports stored pathnames and a sample
+      // minted URL (no secrets) so storage issues are diagnosable in-browser.
+      if (url.pathname === "/api/import/debug" && req.method === "GET") {
+        const result = { vercelEnv: process.env.VERCEL_ENV || null, hasOidcToken: Boolean(process.env.VERCEL_OIDC_TOKEN) };
+        try {
+          result.referenceUrl = store.getUrl ? await store.getUrl("model-reference.png") : null;
+          result.jobFiles = (await store.list("jobs/")).slice(0, 60);
+          result.libraryFiles = (await store.list("imported/")).slice(0, 30);
+        } catch (error) {
+          result.error = error.message;
+        }
+        return json(res, 200, result);
+      }
       if (url.pathname === "/api/import/model-reference" && (req.method === "PUT" || req.method === "POST")) {
         const input = await readJsonBody(req);
         const image = decodeImage(input);
