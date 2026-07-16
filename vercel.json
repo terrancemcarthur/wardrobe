@@ -5,5 +5,8 @@
     "api/**/*.mjs": {
       "maxDuration": 300
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/import/:path*", "destination": "/api/import" }
+  ]
 }

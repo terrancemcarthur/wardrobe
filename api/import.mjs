@@ -1,5 +1,5 @@
-import { createImportHandler } from "../../server/import-router.mjs";
-import { createBlobStore } from "../../server/blob-store.mjs";
+import { createImportHandler } from "../server/import-router.mjs";
+import { createBlobStore } from "../server/blob-store.mjs";
 
 let handler;
 
