@@ -13,12 +13,31 @@ const PARTS = [
 ];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+// Serverless deployments cap request bodies well below phone-photo sizes, so
+// large uploads are downscaled in the browser before they leave the device.
+const MAX_UPLOAD_EDGE = 2048;
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);
   reader.onerror = () => reject(reader.error || new Error("Could not read that image."));
   reader.readAsDataURL(file);
 });
+
+async function fileToDataUrl(file) {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, MAX_UPLOAD_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return readFileAsDataUrl(file);
+  }
+}
 
 async function api(path, options) {
   const response = await fetch(path, {
@@ -26,7 +45,7 @@ async function api(path, options) {
     headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
   });
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(value.error || "The import job could not be updated.");
+  if (!response.ok) throw Object.assign(new Error(value.error || "The import job could not be updated."), { status: response.status });
   return value;
 }
 
@@ -146,6 +165,20 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null);
   const [setup, setSetup] = useState(null);
+  const referenceInputRef = useRef(null);
+  const [referenceUploading, setReferenceUploading] = useState(false);
+
+  const uploadReference = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setReferenceUploading(true);
+    setError("");
+    try {
+      const imageDataUrl = await fileToDataUrl(file);
+      const next = await api("/api/import/model-reference", { method: "PUT", body: JSON.stringify({ imageDataUrl }) });
+      setSetup(next);
+    } catch (requestError) { setError(requestError.message); }
+    finally { setReferenceUploading(false); }
+  };
 
   useEffect(() => {
     api(CONFIG_API).then(setSetup).catch((requestError) => setSetup({ ready: false, error: requestError.message }));
@@ -163,7 +196,16 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
       const next = await api(`${API}/${id}`);
       setJobs((current) => current.map((job) => job.id === id ? next : job));
       setDrafts((current) => current[id] ? current : { ...current, [id]: defaultDraft(next) });
-    } catch (requestError) { setError(requestError.message); }
+    } catch (requestError) {
+      // A 404 means the job was approved, rejected, or deleted while this
+      // poll was in flight — mirror the server instead of raising an error.
+      if (requestError.status === 404) {
+        setJobs((current) => current.filter((job) => job.id !== id));
+        setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([jobId]) => jobId !== id)));
+        return;
+      }
+      setError(requestError.message);
+    }
   }, []);
 
   useEffect(() => {
@@ -213,7 +255,7 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
         await api(`${API}/${job.id}/metadata`, { method: "PATCH", body: JSON.stringify({ metadata }) });
         const updated = await api(`${API}/${job.id}/stages/garment/approve`, { method: "POST" });
         const garmentPath = `/api/import/library/import-${job.id}-garment.png`;
-        onGarmentApproved?.({ id: `import-${job.id}`, ...metadata, image: garmentPath, thumbnail: garmentPath, modeledImage: null, palette: [metadata.color, metadata.secondaryColor].filter(Boolean), importJobId: job.id });
+        onGarmentApproved?.(updated.importedRecord || { id: `import-${job.id}`, ...metadata, image: garmentPath, thumbnail: garmentPath, modeledImage: null, palette: [metadata.color, metadata.secondaryColor].filter(Boolean), importJobId: job.id });
         setJobs((current) => current.map((item) => item.id === job.id ? updated : item));
       } else {
         const updated = await api(`${API}/${job.id}/stages/${stage}/${action}`, { method: "POST", body: action === "regenerate" ? JSON.stringify({ prompt }) : undefined });
@@ -226,7 +268,7 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
           if (!remainingJobs.length) setOpen(false);
         }
         if (action === "regenerate") setRegenerationPrompts((current) => ({ ...current, [`${job.id}:${stage}`]: "" }));
-        if (stage === "modeled" && action === "approve") onModeledApproved?.(job.id, `/api/import/library/import-${job.id}-modeled.png`);
+        if (stage === "modeled" && action === "approve") onModeledApproved?.(job.id, updated.importedRecord?.modeledImage || `/api/import/library/import-${job.id}-modeled.png`);
       }
     } catch (requestError) { setError(requestError.message); }
     finally { setBusyId(null); }
@@ -278,7 +320,7 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
       <div className="import-popover-backdrop" data-open={open} onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}>
         <section className="import-popover" role="dialog" aria-modal="true" aria-labelledby="import-title">
           <header className="import-popover__header"><div><p className="import-popover__eyebrow">Wardrobe import</p><h2 className="import-popover__title" id="import-title">{readyCount ? `${readyCount} ready for review` : activeStatus?.tone === "error" ? "Import needs attention" : jobs.length ? "Preparing new pieces" : notice?.text || "Add to your wardrobe"}</h2></div><button className="import-icon-button" type="button" onClick={() => setOpen(false)} aria-label="Close import progress"><X size={20} /></button></header>
-          {!jobs.length ? setupRequired ? <div className="import-drop-target import-setup-warning"><WarningCircle size={30} /><h2>Setup required</h2><p>Add your OpenAI API key to <code>.env</code> and a PNG reference photo of yourself at <code>{setup.modelReference || "data/model-reference.png"}</code>, then restart the app.</p></div> : <div className="import-drop-target"><UploadSimple size={28} /><h2>{notice ? "Try another image" : "Choose or paste an image"}</h2><p>{notice?.detail || "We’ll isolate each clothing item, suggest its details, and hold everything for your approval."}</p><button className="import-button import-button--primary" disabled={!setup?.ready} onClick={() => { setNotice(null); inputRef.current?.click(); }}>Choose images</button></div> : (
+          {!jobs.length ? setupRequired ? <div className="import-drop-target import-setup-warning"><WarningCircle size={30} /><h2>Setup required</h2><p>{setup.hint || <>Add your OpenAI API key to <code>.env</code> and a PNG reference photo of yourself at <code>{setup.modelReference || "data/model-reference.png"}</code>, then restart the app.</>}</p>{setup.canUploadReference && setup.hasBlobStore && !setup.hasModelReference && <><input ref={referenceInputRef} type="file" accept="image/*" hidden onChange={(event) => { uploadReference(event.target.files[0]); event.target.value = ""; }} /><button className="import-button import-button--primary" disabled={referenceUploading} onClick={() => referenceInputRef.current?.click()}>{referenceUploading ? "Uploading…" : "Upload reference photo"}</button></>}</div> : <div className="import-drop-target"><UploadSimple size={28} /><h2>{notice ? "Try another image" : "Choose or paste an image"}</h2><p>{notice?.detail || "We’ll isolate each clothing item, suggest its details, and hold everything for your approval."}</p><button className="import-button import-button--primary" disabled={!setup?.ready} onClick={() => { setNotice(null); inputRef.current?.click(); }}>Choose images</button></div> : (
             <>
               <div className={`import-progress${activeStatus?.tone !== "processing" ? " is-reviewing" : progress < 100 ? " is-indeterminate" : ""}`}><div className="import-progress__meta"><span>{activeStatus?.text}</span><span>{jobs.length} {jobs.length === 1 ? "item" : "items"}</span></div>{activeStatus?.tone === "processing" && <div className="import-progress__track"><div className="import-progress__bar" style={{ "--import-progress": `${progress}%` }} /></div>}</div>
               {reviewJob && reviewStage ? <ReviewEditor job={reviewJob} stage={reviewStage} draft={drafts[reviewJob.id] || defaultDraft(reviewJob)} setDraft={(draft) => setDrafts((current) => ({ ...current, [reviewJob.id]: draft }))} regenPrompt={regenerationPrompts[`${reviewJob.id}:${reviewStage}`] || ""} setRegenPrompt={(prompt) => setRegenerationPrompts((current) => ({ ...current, [`${reviewJob.id}:${reviewStage}`]: prompt }))} busy={busyId === reviewJob.id} onAction={(action, prompt) => perform(reviewJob, reviewStage, action, prompt)} /> : reviewJob && hasCleanupFailure(reviewJob) ? <CleanupEditor job={reviewJob} tolerance={cleanupTolerances[reviewJob.id] ?? reviewJob.stages.garment.cleanupTolerance ?? 46} setTolerance={(tolerance) => setCleanupTolerances((current) => ({ ...current, [reviewJob.id]: tolerance }))} busy={busyId === reviewJob.id} onPreview={(tolerance) => performCleanup(reviewJob, "preview", tolerance)} onAccept={() => performCleanup(reviewJob, "accept")} /> : null}

@@ -65,6 +65,31 @@ If you are setting up Wardrobe for a user, ask how they want to import their clo
 | `OPENAI_IMAGE_QUALITY` | `high` |
 | `WARDROBE_MODEL_REFERENCE` | `data/model-reference.png` |
 | `WARDROBE_DATA_DIR` | `data` |
+| `WARDROBE_HOST` | `127.0.0.1` |
+
+The server listens on loopback only by default. Setting `WARDROBE_HOST=0.0.0.0` exposes the app — including the import API that uses your OpenAI key and your wardrobe photos — to everyone on your network.
+
+## Deploy to Vercel
+
+The repo also runs as a Vercel app: the gallery deploys as a static site, and the import API runs as a serverless function backed by Vercel Blob (`api/import/[...path].mjs`). Images and the wardrobe database live in the Blob store instead of `data/`.
+
+1. Import the repo into Vercel (framework preset: Vite).
+2. In the project's **Storage** tab, create and connect a **Blob** store. This provisions `BLOB_READ_WRITE_TOKEN` automatically.
+3. In **Settings → Environment Variables**, add `OPENAI_API_KEY` and — strongly recommended — `WARDROBE_PASSWORD`. The password puts the whole deployment behind HTTP Basic Auth; without it, anyone who finds the URL can import photos on your OpenAI bill and browse your wardrobe.
+4. Deploy, then upload your model reference photo from your machine:
+
+   ```bash
+   vercel env pull .env.local
+   npm run upload-reference -- path/to/your-photo.png
+   ```
+
+Notes for the hosted mode:
+
+- Garment and modeled images are generated **during** the approve/regenerate request, so those clicks take a minute or two — the buttons stay disabled while it runs.
+- `vercel.json` sets `maxDuration: 300`, which requires Fluid Compute (default on new projects). If your plan rejects it, lower the value and consider `OPENAI_IMAGE_QUALITY=medium`.
+- Uploads are downscaled in the browser to fit serverless body limits.
+- Blob-stored images are served through the API under your password, but the underlying `*.public.blob.vercel-storage.com` URLs are unlisted-public — treat the store like a private photo album shared by link.
+- The deployment is single-user: there are no accounts, and concurrent editing from two devices can race.
 
 ## License
 

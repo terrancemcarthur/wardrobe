@@ -5,16 +5,21 @@
   "description": "A local-first AI wardrobe gallery powered by OpenAI.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "npm run build"
+    "check": "npm run build",
+    "upload-reference": "node scripts/upload-model-reference.mjs"
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "^5.2.8",
     "@phosphor-icons/react": "^2.1.10",
     "@unpic/react": "^1.0.2",
+    "@vercel/blob": "^2.6.1",
     "@vitejs/plugin-react": "5.0.4",
     "ipx": "^3.1.1",
     "react": "19.2.0",

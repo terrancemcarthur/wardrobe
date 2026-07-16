@@ -1,4 +1,4 @@
-const CACHE = "open-wardrobe-shell-v1";
+const CACHE = "open-wardrobe-shell-v2";
 const IMAGE_CACHE = "wardrobe-images-v1";
 const ACTIVE_CACHES = new Set([CACHE, IMAGE_CACHE]);
 const MAX_IMAGE_ENTRIES = 800;
@@ -52,8 +52,10 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).then((response) => {
-      const copy = response.clone();
-      caches.open(CACHE).then((cache) => cache.put(request, copy));
+      if (response.ok && !response.redirected) {
+        const copy = response.clone();
+        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(request, copy)));
+      }
       return response;
     }).catch(() => caches.match(request).then((cached) => cached || caches.match("/"))));
   }
