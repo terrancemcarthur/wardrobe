@@ -224,6 +224,22 @@ export function createImportHandler(store) {
     res.end(bytes);
   }
 
+  // Redirect to the storage CDN when the store can mint a URL (Vercel Blob);
+  // fall back to proxying bytes for stores that cannot (tests, future disk).
+  async function serveAsset(res, pathname, cacheControl) {
+    if (store.getUrl) {
+      const target = await store.getUrl(pathname);
+      if (!target) return json(res, 404, { error: "Not found" });
+      res.statusCode = 302;
+      res.setHeader("Location", target);
+      res.setHeader("Cache-Control", cacheControl);
+      return res.end();
+    }
+    const bytes = await store.readBytes(pathname);
+    if (!bytes) return json(res, 404, { error: "Not found" });
+    return sendImage(res, bytes, cacheControl);
+  }
+
   return async function handler(req, res) {
     const url = new URL(req.url, "http://localhost");
     try {
@@ -252,15 +268,11 @@ export function createImportHandler(store) {
       }
       const libraryAssetMatch = url.pathname.match(/^\/api\/import\/library\/([\w.-]+)$/i);
       if (libraryAssetMatch && req.method === "GET") {
-        const bytes = await store.readBytes(`imported/${path.basename(libraryAssetMatch[1])}`);
-        if (!bytes) return json(res, 404, { error: "Not found" });
-        return sendImage(res, bytes, "public, max-age=31536000, immutable");
+        return serveAsset(res, `imported/${path.basename(libraryAssetMatch[1])}`, "public, max-age=31536000, immutable");
       }
       const assetMatch = url.pathname.match(/^\/api\/import\/assets\/([a-f0-9-]{36})\/([\w.-]+)$/i);
       if (assetMatch && req.method === "GET") {
-        const bytes = await store.readBytes(`jobs/${assetMatch[1]}/${path.basename(assetMatch[2])}`);
-        if (!bytes) return json(res, 404, { error: "Not found" });
-        return sendImage(res, bytes, "no-store");
+        return serveAsset(res, `jobs/${assetMatch[1]}/${path.basename(assetMatch[2])}`, "no-store");
       }
       if (url.pathname === "/api/import/jobs" && req.method === "POST") {
         const setup = await setupStatus();

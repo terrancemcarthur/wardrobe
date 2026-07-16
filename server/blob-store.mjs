@@ -81,6 +81,19 @@ export function createBlobStore() {
       }
     },
 
+    // Public URL for a stored image, so image requests can be redirected to
+    // the Blob CDN instead of proxying bytes through the function (which is
+    // capped at ~4.5 MB per response).
+    async getUrl(pathname) {
+      try {
+        const meta = await head(full(pathname), tokenOption());
+        return meta.url;
+      } catch (error) {
+        if (isNotFound(error)) return null;
+        throw error;
+      }
+    },
+
     async writeBytes(pathname, bytes, contentType = "image/png") {
       await put(full(pathname), bytes, {
         access: "public",
