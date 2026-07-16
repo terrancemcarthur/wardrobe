@@ -86,12 +86,13 @@ export function createImportHandler(store) {
     const missing = [];
     if (!hasBlobStore) missing.push("connect a Blob store to this project (Vercel dashboard → Storage → Create Blob store) and redeploy");
     if (!hasApiKey) missing.push("set OPENAI_API_KEY in your Vercel project's environment variables and redeploy");
-    if (hasBlobStore && !hasModelReference) missing.push("upload a reference photo of yourself by running: npm run upload-reference -- your-photo.png");
+    if (hasBlobStore && !hasModelReference) missing.push("upload a clear photo of yourself as the model reference using the button below");
     return {
       ready: hasApiKey && hasBlobStore && hasModelReference,
       hasApiKey,
       hasBlobStore,
       hasModelReference,
+      canUploadReference: true,
       modelReference: "model-reference.png",
       hint: missing.length ? `To enable importing, ${missing.join(", and ")}.` : null,
       // Env var NAMES only (never values), to make storage misconfiguration
@@ -230,6 +231,13 @@ export function createImportHandler(store) {
         return json(res, 200, (await store.readJson("library.json")) || []);
       }
       if (url.pathname === "/api/import/config" && req.method === "GET") {
+        return json(res, 200, await setupStatus());
+      }
+      if (url.pathname === "/api/import/model-reference" && (req.method === "PUT" || req.method === "POST")) {
+        const input = await readJsonBody(req);
+        const image = decodeImage(input);
+        const normalized = await normalizeImage(image.data);
+        await store.writeBytes("model-reference.png", normalized, "image/png");
         return json(res, 200, await setupStatus());
       }
       const wardrobeDeleteMatch = url.pathname.match(/^\/api\/import\/wardrobe\/(import-[a-f0-9-]{36})$/i);

@@ -26,8 +26,8 @@ function tokenOption() {
   return token ? { token } : {};
 }
 
-function isNotFound(error) {
-  return error?.name === "BlobNotFoundError" || /not.?found/i.test(error?.message || "");
+export function isNotFound(error) {
+  return error?.name === "BlobNotFoundError" || /not.?found|does not exist/i.test(error?.message || "");
 }
 
 async function listAll(prefix) {
