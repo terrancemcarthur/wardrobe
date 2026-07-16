@@ -17,6 +17,15 @@ export function resolveBlobToken() {
   return key ? process.env[key] : undefined;
 }
 
+// Only pass an explicit token when one actually exists: an explicit token
+// (even undefined) can pre-empt the SDK's own resolution, which on newer
+// Vercel projects authenticates via short-lived OIDC credentials instead of
+// a BLOB_READ_WRITE_TOKEN env var.
+function tokenOption() {
+  const token = resolveBlobToken();
+  return token ? { token } : {};
+}
+
 function isNotFound(error) {
   return error?.name === "BlobNotFoundError" || /not.?found/i.test(error?.message || "");
 }
@@ -25,7 +34,7 @@ async function listAll(prefix) {
   const blobs = [];
   let cursor;
   do {
-    const page = await list({ prefix: full(prefix), cursor, limit: 1000, token: resolveBlobToken() });
+    const page = await list({ prefix: full(prefix), cursor, limit: 1000, ...tokenOption() });
     blobs.push(...page.blobs);
     cursor = page.cursor;
   } while (cursor);
@@ -55,16 +64,16 @@ export function createBlobStore() {
         access: "public",
         addRandomSuffix: false,
         contentType: "application/json",
-        token: resolveBlobToken(),
+        ...tokenOption(),
       });
       const versions = await listAll(`${pathname}.v`);
       const stale = versions.filter((blob) => blob.pathname < versionedPath);
-      if (stale.length) await del(stale.map((blob) => blob.url), { token: resolveBlobToken() }).catch(() => {});
+      if (stale.length) await del(stale.map((blob) => blob.url), tokenOption()).catch(() => {});
     },
 
     async readBytes(pathname) {
       try {
-        const meta = await head(full(pathname), { token: resolveBlobToken() });
+        const meta = await head(full(pathname), tokenOption());
         return await fetchBlob(meta.url);
       } catch (error) {
         if (isNotFound(error)) return null;
@@ -78,13 +87,13 @@ export function createBlobStore() {
         addRandomSuffix: false,
         allowOverwrite: true,
         contentType,
-        token: resolveBlobToken(),
+        ...tokenOption(),
       });
     },
 
     async exists(pathname) {
       try {
-        await head(full(pathname), { token: resolveBlobToken() });
+        await head(full(pathname), tokenOption());
         return true;
       } catch (error) {
         if (isNotFound(error)) return false;
@@ -94,7 +103,7 @@ export function createBlobStore() {
 
     async deletePrefix(prefix) {
       const blobs = await listAll(prefix);
-      if (blobs.length) await del(blobs.map((blob) => blob.url), { token: resolveBlobToken() });
+      if (blobs.length) await del(blobs.map((blob) => blob.url), tokenOption());
     },
 
     async list(prefix) {

@@ -74,12 +74,14 @@ export function createImportHandler(store) {
     const hasApiKey = Boolean(setting("OPENAI_API_KEY").trim());
     let hasBlobStore = true;
     let hasModelReference = false;
+    let blobError = null;
     try {
       hasModelReference = await store.exists("model-reference.png");
     } catch (error) {
-      // Without BLOB_READ_WRITE_TOKEN (no Blob store connected) every store
-      // call throws; report it as a setup step instead of failing the route.
+      // Without working Blob credentials every store call throws; report it
+      // as a setup step (with the SDK's reason) instead of failing the route.
       hasBlobStore = false;
+      blobError = error.message;
     }
     const missing = [];
     if (!hasBlobStore) missing.push("connect a Blob store to this project (Vercel dashboard → Storage → Create Blob store) and redeploy");
@@ -97,6 +99,8 @@ export function createImportHandler(store) {
       ...(hasBlobStore ? {} : {
         diagnostics: {
           vercelEnv: process.env.VERCEL_ENV || null,
+          hasOidcToken: Boolean(process.env.VERCEL_OIDC_TOKEN),
+          blobError,
           blobRelatedEnvVars: Object.keys(process.env).filter((name) => name.includes("BLOB") || name.endsWith("_READ_WRITE_TOKEN")).sort(),
         },
       }),
