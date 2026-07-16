@@ -65,6 +65,9 @@ If you are setting up Wardrobe for a user, ask how they want to import their clo
 | `OPENAI_IMAGE_QUALITY` | `high` |
 | `WARDROBE_MODEL_REFERENCE` | `data/model-reference.png` |
 | `WARDROBE_DATA_DIR` | `data` |
+| `WARDROBE_HOST` | `127.0.0.1` |
+
+The server listens on loopback only by default. Setting `WARDROBE_HOST=0.0.0.0` exposes the app — including the import API that uses your OpenAI key and your wardrobe photos — to everyone on your network.
 
 ## License
 

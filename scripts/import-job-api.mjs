@@ -426,6 +426,7 @@ export function wardrobeImportApi(options = {}) {
     if (running.has(lock)) return running.get(lock);
     const task = (async () => {
       const current = await loadJob(job.id);
+      if (!current) return;
       const stage = current.stages[stageName];
       stage.status = "processing"; stage.decision = null; stage.error = null; stage.attempts += 1; stage.updatedAt = new Date().toISOString();
       await saveJob(current);
@@ -467,6 +468,7 @@ export function wardrobeImportApi(options = {}) {
         }
         await writeFile(output, bytes);
         const fresh = await loadJob(current.id);
+        if (!fresh) return;
         fresh.stages[stageName].status = "review";
         fresh.stages[stageName].assetUrl = `${ASSET_ROOT}/${fresh.id}/${path.basename(output)}`;
         fresh.stages[stageName].failedAssetUrl = null;
@@ -477,6 +479,7 @@ export function wardrobeImportApi(options = {}) {
         await saveJob(fresh);
       } catch (error) {
         const fresh = await loadJob(current.id);
+        if (!fresh) return;
         fresh.stages[stageName].status = "failed"; fresh.stages[stageName].error = error.message; fresh.stages[stageName].updatedAt = new Date().toISOString();
         if (typeof failedAssetUrl === "string") fresh.stages[stageName].failedAssetUrl = failedAssetUrl;
         if (chromaKeyUsed) fresh.stages[stageName].chromaKey = chromaKeyUsed;

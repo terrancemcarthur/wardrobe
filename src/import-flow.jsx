@@ -26,7 +26,7 @@ async function api(path, options) {
     headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
   });
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(value.error || "The import job could not be updated.");
+  if (!response.ok) throw Object.assign(new Error(value.error || "The import job could not be updated."), { status: response.status });
   return value;
 }
 
@@ -163,7 +163,16 @@ export function WardrobeImportFlow({ onGarmentApproved, onModeledApproved }) {
       const next = await api(`${API}/${id}`);
       setJobs((current) => current.map((job) => job.id === id ? next : job));
       setDrafts((current) => current[id] ? current : { ...current, [id]: defaultDraft(next) });
-    } catch (requestError) { setError(requestError.message); }
+    } catch (requestError) {
+      // A 404 means the job was approved, rejected, or deleted while this
+      // poll was in flight — mirror the server instead of raising an error.
+      if (requestError.status === 404) {
+        setJobs((current) => current.filter((job) => job.id !== id));
+        setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([jobId]) => jobId !== id)));
+        return;
+      }
+      setError(requestError.message);
+    }
   }, []);
 
   useEffect(() => {
