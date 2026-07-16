@@ -92,6 +92,14 @@ export function createImportHandler(store) {
       hasModelReference,
       modelReference: "model-reference.png",
       hint: missing.length ? `To enable importing, ${missing.join(", and ")}.` : null,
+      // Env var NAMES only (never values), to make storage misconfiguration
+      // diagnosable from the browser.
+      ...(hasBlobStore ? {} : {
+        diagnostics: {
+          vercelEnv: process.env.VERCEL_ENV || null,
+          blobRelatedEnvVars: Object.keys(process.env).filter((name) => name.includes("BLOB") || name.endsWith("_READ_WRITE_TOKEN")).sort(),
+        },
+      }),
     };
   }
 
